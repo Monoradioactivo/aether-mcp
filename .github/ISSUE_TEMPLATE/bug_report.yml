@@ -1,0 +1,67 @@
+name: Bug report
+description: Report something broken in the Aether MCP server
+labels: [ "bug" ]
+body:
+  - type: input
+    id: package-version
+    attributes:
+      label: "@aetherpush/mcp version"
+      description: The version your MCP client configuration pins, or the output of `npm view @aetherpush/mcp version`
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: mcp-client
+    attributes:
+      label: MCP client
+      description: The client that runs the server, with its version
+      placeholder: "Claude Code 2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Run `node --version`
+      placeholder: "v22.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug, the tool call or request that triggered it, and expected vs actual behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Relevant stderr output, error messages, or stack traces. Remove API keys before pasting.
+      render: shell

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabledManagers": [
+    "npm",
+    "github-actions"
+  ],
+  "branchPrefix": "chore/renovate-",
+  "semanticCommits": "enabled",
+  "packageRules": [
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "semanticCommitType": "chore"
+    },
+    {
+      "matchManagers": [
+        "npm",
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchManagers": [
+        "npm",
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "weekly updates"
+    }
+  ],
+  "timezone": "America/Mexico_City",
+  "schedule": [
+    "before 6am on monday"
+  ],
+  "minimumReleaseAge": "3 days",
+  "prConcurrentLimit": 3,
+  "osvVulnerabilityAlerts": true,
+  "dependencyDashboard": true
+}

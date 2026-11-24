@@ -1,0 +1,62 @@
+{
+  "name": "@aetherpush/mcp",
+  "version": "0.0.0",
+  "description": "Model Context Protocol server for Aether: over-the-air updates for React Native apps.",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\"",
+    "prepack": "node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\"",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc --noEmit",
+    "prettier": "prettier --write \"./**/*.ts\"",
+    "lint": "eslint \"./src/**/*.ts\" \"./__tests__/**/*.ts\"",
+    "lint:fix": "eslint \"./src/**/*.ts\" \"./__tests__/**/*.ts\" --fix",
+    "pretest": "npm run build",
+    "test": "jest"
+  },
+  "bin": {
+    "aether-mcp": "dist/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Monoradioactivo/aether-mcp.git"
+  },
+  "author": "Aether",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Monoradioactivo/aether-mcp/issues"
+  },
+  "homepage": "https://github.com/Monoradioactivo/aether-mcp#readme",
+  "keywords": [
+    "aether",
+    "aetherpush",
+    "mcp",
+    "model-context-protocol",
+    "react-native",
+    "ota",
+    "codepush"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "eslint": "^8.45.0",
+    "jest": "^30.4.2",
+    "js-yaml": "^4.3.2",
+    "prettier": "^2.8.8",
+    "ts-jest": "^29.4.10",
+    "typescript": "^5.1.3"
+  }
+}
