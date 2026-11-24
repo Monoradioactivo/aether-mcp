@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--') && format('ci-{0}-{1}', github.head_ref, github.event.pull_request.head.sha) || format('{0}-{1}', github.workflow, github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please--') }}
+
+jobs:
+  branch-name:
+    name: Branch name policy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Validate branch prefix
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          if [[ "$BRANCH" =~ ^release-please-- ]]; then
+            echo "Skipping branch name policy for bot branch '$BRANCH'."
+            exit 0
+          fi
+          if [[ ! "$BRANCH" =~ ^(feat|fix|chore|refactor|docs|test)/ ]]; then
+            echo "::error::Branch '$BRANCH' must start with feat/, fix/, chore/, refactor/, docs/, or test/"
+            exit 1
+          fi
+          echo "Branch '$BRANCH' is valid."
+
+  build:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [ 22, 24 ]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Workflow run interpolation tests
+        run: node --test scripts/workflow-run-interpolation.test.mjs
+
+      - name: Release auto-merge gate tests
+        run: node --test scripts/release-auto-merge-gate.test.mjs scripts/check-release-auto-merge.test.mjs
+
+      - name: Behind bot tests
+        run: node --test scripts/behind-bot.test.mjs
+
+      - name: Commit provenance tests
+        run: node --test scripts/commit-provenance.test.mjs scripts/ci-concurrency-head.test.mjs
+
+      - name: Test
+        run: npm test
