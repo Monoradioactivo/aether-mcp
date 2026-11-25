@@ -8,13 +8,11 @@
     "source": "github"
   },
   "websiteUrl": "https://docs.aetherpush.com/mcp/",
-  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@aetherpush/mcp",
-      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
