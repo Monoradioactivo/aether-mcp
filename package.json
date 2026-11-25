@@ -1,6 +1,6 @@
 {
   "name": "@aetherpush/mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Model Context Protocol server for Aether: over-the-air updates for React Native apps.",
   "mcpName": "io.github.Monoradioactivo/aether-mcp",
   "scripts": {
