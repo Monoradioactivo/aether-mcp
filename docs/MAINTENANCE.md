@@ -4,12 +4,6 @@ Repository settings, procedures and conventions that live outside the code. Upda
 
 The repository was set up from `aether-cli`, and its release and provenance workflows are the same text as that repository's. `aether-workflow` compares the copies every hour (`gate-copies`), so a change to one of them is made in `aether-cli` first and carried here in the same run.
 
-## Setup still open
-
-This file describes the configuration the repository is meant to have. One part of it is not in place yet, and the line below is deleted when that part is live:
-
-- `@aetherpush/mcp` has no bootstrap version on npm and no trusted publisher.
-
 ## Repository configuration
 
 **Settings → General → Pull Requests**
@@ -76,6 +70,7 @@ Configured at **npmjs.com → @aetherpush/mcp → Settings → Trusted Publisher
 - Repository: `aether-mcp`
 - Workflow filename: `release-please.yml`
 - Environment: `npm-publish`
+- Allowed actions: `npm publish` on, `npm dist-tag` off. The publish job runs `npm publish` directly and never manages dist-tags.
 
 If the workflow file is renamed or the publish job changes its environment, this configuration changes with it. Otherwise publishing fails with HTTP 404 from npm.
 
@@ -90,7 +85,7 @@ npm login
 npm publish --access public --tag bootstrap
 ```
 
-The bootstrap version is a prerelease below `0.1.0`, published under the `bootstrap` dist-tag and deprecated once the first release is out. It gets no git tag.
+The bootstrap version is a prerelease below `0.1.0`, published under the `bootstrap` dist-tag. Once the first release is out, the version is deprecated and the dist-tag removed. It gets no git tag. The registry also holds `0.0.0-stage`, a placeholder for staged publishing published a few minutes before the bootstrap version; it is deprecated along with it.
 
 ## Release process
 
