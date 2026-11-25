@@ -125,12 +125,11 @@ describe("the MCP Registry manifest", () => {
     expect(registryPackage.transport).toEqual({ type: "stdio" });
   });
 
-  it("names the current version twice, which release-please keeps current", () => {
-    expect(registryManifest.version).toBe(manifest.version);
-    expect(registryPackage.version).toBe(manifest.version);
+  it("leaves both versions to the release job, since commit provenance refuses a release commit that edits them", () => {
+    expect(registryManifest).not.toHaveProperty("version");
+    expect(registryPackage).not.toHaveProperty("version");
     const extraFiles = releaseConfig.packages["."]["extra-files"];
-    expect(extraFiles).toContainEqual({ type: "json", path: "server.json", jsonpath: "$.version" });
-    expect(extraFiles).toContainEqual({ type: "json", path: "server.json", jsonpath: "$.packages[0].version" });
+    expect(extraFiles.map((entry: { path: string }) => entry.path)).not.toContain("server.json");
   });
 
   it("describes the server as the package does, within the Registry's length limit", () => {
@@ -176,7 +175,6 @@ describe("the packed tarball", () => {
   it("keeps mcpName in the packed package.json, which is what the Registry reads from npm", () => {
     const packed = JSON.parse(readFileSync(join(unpacked, "package.json"), "utf8"));
     expect(packed.mcpName).toBe(registryManifest.name);
-    expect(packed.version).toBe(registryManifest.version);
   });
 
   it(

@@ -155,19 +155,20 @@ jobs:
       MCP_PUBLISHER_VERSION: v1.8.16
       REGISTRY_URL: https://registry.modelcontextprotocol.io
     steps:
-      - name: Fetch server.json at the release tag
+      - name: Fetch server.json at the release tag and stamp its version
         env:
           REPOSITORY: ${{ github.repository }}
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          curl --fail --location --silent --show-error --retry 3 --output server.json \
+          curl --fail --location --silent --show-error --retry 3 --output server.template.json \
             "https://raw.githubusercontent.com/${REPOSITORY}/${TAG_NAME}/server.json"
           VERSION="${TAG_NAME#v}"
-          if [ "$(jq -r '.version' server.json)" != "$VERSION" ] || [ "$(jq -r '.packages[0].version' server.json)" != "$VERSION" ]; then
-            echo "::error::server.json at $TAG_NAME does not name version $VERSION"
+          if [ "$(jq 'has("version") or (.packages[0] | has("version"))' server.template.json)" != "false" ]; then
+            echo "::error::server.json at $TAG_NAME names a version; the release job writes it from the tag"
             exit 1
           fi
+          jq --arg version "$VERSION" '.version = $version | .packages[0].version = $version' server.template.json > server.json
           {
             echo "VERSION=$VERSION"
             echo "SERVER_NAME=$(jq -r '.name' server.json)"
