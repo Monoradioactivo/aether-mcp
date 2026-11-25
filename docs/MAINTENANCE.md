@@ -2,7 +2,7 @@
 
 Repository settings, procedures and conventions that live outside the code. Update this file when one of them changes.
 
-The repository was set up from `aether-cli`, and its release and provenance workflows are the same text as that repository's. `aether-workflow` compares the copies every hour (`gate-copies`), so a change to one of them is made in `aether-cli` first and carried here in the same run.
+The repository was set up from `aether-cli`. Its release auto-merge gate and provenance workflows are the same text as that repository's, and `aether-workflow` compares those copies every hour (`gate-copies`), so a change to one of them is made in `aether-cli` first and carried here in the same run. `release-please.yml` is not one of the compared copies: its `registry` and `release-alert` jobs exist only here, so do not re-sync it from `aether-cli`.
 
 ## Repository configuration
 
@@ -52,7 +52,7 @@ Branches start with `feat/`, `fix/`, `refactor/`, `chore/`, `docs/` or `test/`. 
 |---|---|---|---|
 | `RELEASE_BOT_APP_ID` | secret | repository | App ID of the release bot, used to mint its token in the release workflows |
 | `RELEASE_BOT_PRIVATE_KEY` | secret | repository | Private key of the release bot App |
-| `DISCORD_OPS_WEBHOOK_URL` | secret | repository | Where the behind bot reports a pull request it cannot update |
+| `DISCORD_OPS_WEBHOOK_URL` | secret | repository | Where the behind bot reports a pull request it cannot update, and where `release-alert` reports a failed release |
 | `RELEASE_AUTO_MERGE_ARM` | variable | repository | `true` lets `auto-merge-release.yml` arm auto-merge on a release pull request that passes the gate |
 | `PROVENANCE_APP_ID` | variable | environment `provenance` | App ID of `aether-provenance` |
 | `PROVENANCE_APP_PRIVATE_KEY` | secret | environment `provenance` | Private key of `aether-provenance`, which posts the `Commit provenance` check |
@@ -94,12 +94,23 @@ Releases come from release-please. Nobody pushes version tags by hand.
 1. Every push to `main` runs `release-please.yml`. When `feat` or `fix` commits have landed since the last release, it opens or updates a release pull request with the version bump and the changelog. `chore`, `docs`, `test` and `refactor` commits cut no release. The first release is `0.1.0` (`initial-version` in `release-please-config.json`).
 2. `auto-merge-release.yml` evaluates the release pull request on pull request events, on a schedule and on manual dispatch. It arms squash auto-merge only when every commit since the previous release is vouched for, by a `Brief-Verified:` trailer, by the `brief-verified` label on its pull request, or by being release-please's own commit, and the release is not a major bump. Otherwise the release pull request waits for a maintainer.
 3. Merging the release pull request creates the tag and the GitHub release. The publish job then builds, checks that the tag matches `package.json`, and publishes with provenance.
+4. The `registry` job lists the release in the MCP Registry (next section). When `build`, `publish` or `registry` fails or is cancelled, a job timeout included, `release-alert` posts the run to the ops Discord channel through `DISCORD_OPS_WEBHOOK_URL`.
 
 The gate cannot vouch for a first release, because there is no previous tag to measure from. The `0.1.0` release pull request is held by design and a maintainer merges it.
 
 `0.1.0` is a placeholder that prints a notice and exits; `0.2.0` is the first release that carries the server. Every release after it is checked by the gate like any other, and `__tests__/package.test.ts` fails a release pull request that would cut anything between them.
 
-The tag and the GitHub release exist before the build and publish jobs run. When either job fails, publish that same version: `gh run rerun <run id> --failed -R Monoradioactivo/aether-mcp`. A full re-run finds no new release, skips both jobs and ends green with nothing published, and skipping to the next version hides the failed version's changelog from the Renovate pull request that bumps the Aether CLI. A release is done when `npx -y @aetherpush/mcp@<version>` from an empty folder answers `server/discover` with that version.
+The tag and the GitHub release exist before the build, publish and registry jobs run. When one of them fails, finish that same version: `gh run rerun <run id> --failed -R Monoradioactivo/aether-mcp`. The publish step skips a version npm already has and the registry job skips a version the Registry already lists, so a re-run repeats neither. A full re-run finds no new release, skips every job and ends green with nothing published, and skipping to the next version hides the failed version's changelog from the Renovate pull request that bumps the Aether CLI. A re-run executes the workflow file of the original commit, so a fix merged afterwards does not reach it. Once a newer version is listed, re-running an older release's `registry` job publishes that version and then fails its read-back, which expects the re-run version to be the latest; that failure is expected. A release is done when `npx -y @aetherpush/mcp@<version>` from an empty folder answers `server/discover` with that version and `https://registry.modelcontextprotocol.io/v0.1/servers/io.github.Monoradioactivo%2Faether-mcp/versions/latest` answers that version, active.
+
+## MCP Registry
+
+The server is listed in the official MCP Registry as `io.github.Monoradioactivo/aether-mcp`. The listing is `server.json` at the repository root. The Registry checks that `mcpName` in the published `package.json` equals its `name`, so both live in this repository and `__tests__/package.test.ts` keeps them, the versions, the package identifier, the description (at most 100 characters) and the two environment variables in line. `release-please-config.json` moves `version` and `packages[0].version` in the release pull request.
+
+The `registry` job in `release-please.yml` runs after `publish` on every release. It fetches `server.json` at the release tag with `curl`, with no checkout and no install, waits until npm serves `mcpName` for the new version, installs `mcp-publisher` at `MCP_PUBLISHER_VERSION` after `cosign` checks its Sigstore bundle against the Registry's release workflow, logs in with `mcp-publisher login github-oidc`, publishes, and reads `versions/latest` back, failing when the listing and `server.json` differ in any value but `$schema`, in either direction, so a value added on the Registry side fails too. The npm publish step skips a version npm already has only when its integrity equals the tarball this run built. It holds `id-token: write` and runs outside the `npm-publish` environment, so its token cannot satisfy npm's trusted publisher. Renovate bumps `MCP_PUBLISHER_VERSION` as its own `chore` pull request; an old publisher fails with `invalid audience`.
+
+The Registry's GitHub OIDC login checks only the token's `repository_owner`. Any workflow with `id-token: write` in any repository the `Monoradioactivo` account owns can publish under `io.github.Monoradioactivo/*`, so that permission stays out of workflows that run code from pull requests.
+
+To publish by hand when the job cannot: from a checkout at the release tag, `mcp-publisher login github` as `Monoradioactivo`, then `mcp-publisher publish`. `mcp-publisher status --status deleted io.github.Monoradioactivo/aether-mcp <version>` withdraws a version. `curl -X POST -H 'Content-Type: application/json' --data-binary @server.json https://registry.modelcontextprotocol.io/v0/validate` checks a draft without the binary.
 
 The setup commands in `README.md` pin an exact version between `x-release-please-start-version` and `x-release-please-end` markers, and `release-please-config.json` lists `README.md` as a generic extra file, so the release pull request moves those pins to the new version. `__tests__/package.test.ts` fails when a pin differs from `package.json`. Keep other version-shaped strings, such as the Claude Code version the README names, outside the markers.
 
@@ -117,6 +128,7 @@ Renovate (`renovate.json`) is the only dependency updater. Dependabot is not con
 - Minor, patch, pin and digest updates for npm and GitHub Actions are grouped into one `weekly updates` pull request.
 - Major updates wait for approval on the Dependency Dashboard issue.
 - npm updates use the `chore` commit type, so they never cut a release on their own.
+- A `custom.regex` manager tracks `MCP_PUBLISHER_VERSION` in `release-please.yml` against the `modelcontextprotocol/registry` releases, as its own `mcp-publisher` pull request with the `chore` type.
 
 ## CI
 
