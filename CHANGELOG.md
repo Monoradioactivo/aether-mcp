@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/Monoradioactivo/aether-mcp/compare/v0.2.0...v0.2.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **package:** list the server in the MCP Registry ([#9](https://github.com/Monoradioactivo/aether-mcp/issues/9)) ([b30e352](https://github.com/Monoradioactivo/aether-mcp/commit/b30e352577dc306d80dc66786e593beb67649cce))
+* **release:** write the Registry version from the release tag ([#11](https://github.com/Monoradioactivo/aether-mcp/issues/11)) ([7ce9821](https://github.com/Monoradioactivo/aether-mcp/commit/7ce98213904a793f69aa455f3e966ac6cb71831e))
+
 ## [0.2.0](https://github.com/Monoradioactivo/aether-mcp/compare/v0.1.0...v0.2.0) (2026-11-25)
 
 
