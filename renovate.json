@@ -2,11 +2,32 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "enabledManagers": [
     "npm",
-    "github-actions"
+    "github-actions",
+    "custom.regex"
   ],
   "branchPrefix": "chore/renovate-",
   "semanticCommits": "enabled",
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/release-please\\.yml$/"
+      ],
+      "matchStrings": [
+        "MCP_PUBLISHER_VERSION: (?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "modelcontextprotocol/registry",
+      "datasourceTemplate": "github-releases"
+    }
+  ],
   "packageRules": [
+    {
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "semanticCommitType": "chore",
+      "groupName": "mcp-publisher"
+    },
     {
       "matchManagers": [
         "npm"
@@ -16,7 +37,8 @@
     {
       "matchManagers": [
         "npm",
-        "github-actions"
+        "github-actions",
+        "custom.regex"
       ],
       "matchUpdateTypes": [
         "major"

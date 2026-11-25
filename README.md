@@ -63,7 +63,7 @@ Each tool returns its answer twice: as `structuredContent`, matching the tool's 
 
 `app` and `deployment` are names, 1 to 255 characters.
 
-A release, wherever a tool returns one, has `label`, `appVersion`, `description`, `uploadedAt`, `rolloutPercent`, `isMandatory`, `isDisabled`, `isAutoHalted` (`null` when the server does not say) and `releaseMethod` (upload, promote or rollback).
+A release, wherever a tool returns one, has `label`, `appVersion`, `description`, `uploadedAt`, `rolloutPercent`, `isMandatory`, `isDisabled`, `isAutoHalted` (`null` when the server does not say) and `releaseMethod` (`Upload`, `Promote` or `Rollback`, as the server writes them).
 
 ### list_apps
 

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Monoradioactivo/aether-mcp",
+  "title": "Aether",
+  "description": "Model Context Protocol server for Aether: over-the-air updates for React Native apps.",
+  "repository": {
+    "url": "https://github.com/Monoradioactivo/aether-mcp",
+    "source": "github"
+  },
+  "websiteUrl": "https://docs.aetherpush.com/mcp/",
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@aetherpush/mcp",
+      "version": "0.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AETHER_MCP_API_KEY",
+          "description": "Aether API key (aether_sk_live_…) with only the read scope",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "AETHER_MCP_API_URL",
+          "description": "Aether API root URL, https only",
+          "default": "https://api.aetherpush.com"
+        }
+      ]
+    }
+  ]
+}

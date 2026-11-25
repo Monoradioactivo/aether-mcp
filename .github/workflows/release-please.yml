@@ -126,4 +126,149 @@ jobs:
       - name: Publish to npm with provenance
         env:
           TARBALL: ${{ needs.build.outputs.tarball }}
-        run: npm publish "./$TARBALL" --provenance --access public --ignore-scripts
+          TAG_VERSION: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          PKG_NAME=$(tar -xOzf "$TARBALL" package/package.json | node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>console.log(JSON.parse(s).name))')
+          if npm view "$PKG_NAME@${TAG_VERSION#v}" version > /dev/null 2>&1; then
+            PUBLISHED=$(npm view "$PKG_NAME@${TAG_VERSION#v}" dist.integrity)
+            BUILT="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | base64 -w 0)"
+            if [ "$PUBLISHED" != "$BUILT" ]; then
+              echo "::error::$PKG_NAME@${TAG_VERSION#v} is already on npm with integrity $PUBLISHED, not the $BUILT this run built"
+              exit 1
+            fi
+            echo "$PKG_NAME@${TAG_VERSION#v} is already on npm with this run's tarball; nothing to publish."
+            exit 0
+          fi
+          npm publish "./$TARBALL" --provenance --access public --ignore-scripts
+
+  registry:
+    name: Publish to the MCP Registry
+    needs: [release-please, publish]
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.16
+      REGISTRY_URL: https://registry.modelcontextprotocol.io
+    steps:
+      - name: Fetch server.json at the release tag
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 --output server.json \
+            "https://raw.githubusercontent.com/${REPOSITORY}/${TAG_NAME}/server.json"
+          VERSION="${TAG_NAME#v}"
+          if [ "$(jq -r '.version' server.json)" != "$VERSION" ] || [ "$(jq -r '.packages[0].version' server.json)" != "$VERSION" ]; then
+            echo "::error::server.json at $TAG_NAME does not name version $VERSION"
+            exit 1
+          fi
+          {
+            echo "VERSION=$VERSION"
+            echo "SERVER_NAME=$(jq -r '.name' server.json)"
+            echo "PACKAGE_NAME=$(jq -r '.packages[0].identifier' server.json)"
+          } >> "$GITHUB_ENV"
+
+      - name: Wait until npm serves mcpName for this version
+        run: |
+          set -euo pipefail
+          url="https://registry.npmjs.org/${PACKAGE_NAME/\//%2F}/${VERSION}"
+          deadline=$((SECONDS + 600))
+          until [ "$(curl --fail --silent --location --max-time 30 "$url" | jq -r '.mcpName // empty')" = "$SERVER_NAME" ]; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::npm does not serve mcpName $SERVER_NAME for $PACKAGE_NAME@$VERSION after 10 minutes"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "npm serves $PACKAGE_NAME@$VERSION with mcpName $SERVER_NAME"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Download and verify mcp-publisher
+        run: |
+          set -euo pipefail
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --output "$archive" "$base_url/$archive"
+          curl --fail --location --silent --show-error --output "$archive.sigstore.json" "$base_url/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar xzf "$archive" mcp-publisher
+          rm -f "$archive" "$archive.sigstore.json"
+
+      - name: Publish server.json
+        run: |
+          set -euo pipefail
+          version_url="${REGISTRY_URL}/v0.1/servers/${SERVER_NAME/\//%2F}/versions/${VERSION}"
+          if [ "$(curl --silent --max-time 30 --output /dev/null --write-out '%{http_code}' "$version_url")" = "200" ]; then
+            echo "$SERVER_NAME $VERSION is already listed; nothing to publish."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            ./mcp-publisher login github-oidc
+            if ./mcp-publisher publish server.json > publish.log 2>&1; then
+              cat publish.log
+              exit 0
+            fi
+            cat publish.log
+            if grep -qi 'already exists' publish.log; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ] && grep -qi 'not found' publish.log; then
+              sleep 30
+              continue
+            fi
+            exit 1
+          done
+          exit 1
+
+      - name: Read the listing back
+        run: |
+          set -euo pipefail
+          latest=$(curl --fail --silent --show-error --retry 3 --max-time 30 "${REGISTRY_URL}/v0.1/servers/${SERVER_NAME/\//%2F}/versions/latest")
+          listed_version=$(printf '%s' "$latest" | jq -r '.server.version')
+          listed_package=$(printf '%s' "$latest" | jq -r '.server.packages[0].identifier')
+          listed_status=$(printf '%s' "$latest" | jq -r '._meta["io.modelcontextprotocol.registry/official"].status')
+          if [ "$listed_version" != "$VERSION" ] || [ "$listed_package" != "$PACKAGE_NAME" ] || [ "$listed_status" != "active" ]; then
+            echo "::error::the Registry's latest $SERVER_NAME is $listed_version of $listed_package ($listed_status), expected $VERSION of $PACKAGE_NAME (active)"
+            exit 1
+          fi
+          differing=$(printf '%s' "$latest" | jq -c --slurpfile local server.json \
+            '($local[0] | del(."$schema")) as $l | (.server | del(."$schema")) as $r | [([$l | paths(type | . != "object" and . != "array")] + [$r | paths(type | . != "object" and . != "array")] | unique)[] as $p | select(($r | getpath($p)) != ($l | getpath($p))) | $p | map(tostring) | join(".")]')
+          if [ "$differing" != "[]" ]; then
+            echo "::error::the Registry's listing of $SERVER_NAME $VERSION differs from server.json at the tag in $differing"
+            exit 1
+          fi
+          echo "$SERVER_NAME $VERSION is the latest active listing, package $PACKAGE_NAME, and matches server.json"
+
+  release-alert:
+    name: Alert on a failed release
+    needs: [release-please, build, publish, registry]
+    if: ${{ always() && needs.release-please.outputs.release_created == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Post to the ops channel
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_OPS_WEBHOOK_URL }}
+          TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "::error::DISCORD_OPS_WEBHOOK_URL is not set; release $TAG_NAME of $REPOSITORY failed: $RUN_URL"
+            exit 1
+          fi
+          payload=$(jq -n --arg text "Release $TAG_NAME of $REPOSITORY failed; npm or the MCP Registry may be missing it: $RUN_URL" '{content: $text, allowed_mentions: {parse: []}}')
+          curl --fail --silent --show-error -H 'Content-Type: application/json' -H 'User-Agent: AetherOps/1.0' -d "$payload" "$WEBHOOK_URL"

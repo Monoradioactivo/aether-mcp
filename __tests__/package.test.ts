@@ -2,11 +2,14 @@ import { execFileSync, spawn } from "node:child_process";
 import { accessSync, constants, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_API_URL } from "../src/config";
 
 const root = join(__dirname, "..");
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const releaseConfig = JSON.parse(readFileSync(join(root, "release-please-config.json"), "utf8"));
 const readme = readFileSync(join(root, "README.md"), "utf8");
+const registryManifest = JSON.parse(readFileSync(join(root, "server.json"), "utf8"));
+const REGISTRY_DESCRIPTION_MAX = 100;
 const META = { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} };
 const DISCOVER = `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: META } })}\n`;
 const SPAWN_TIMEOUT_MS = 20_000;
@@ -106,6 +109,49 @@ describe("the published package", () => {
   });
 });
 
+describe("the MCP Registry manifest", () => {
+  const [registryPackage] = registryManifest.packages;
+
+  it("carries the name the Registry checks against mcpName in the published package.json", () => {
+    expect(manifest.mcpName).toBe("io.github.Monoradioactivo/aether-mcp");
+    expect(registryManifest.name).toBe(manifest.mcpName);
+  });
+
+  it("lists exactly this npm package as a stdio server", () => {
+    expect(registryManifest.packages).toHaveLength(1);
+    expect(registryPackage.registryType).toBe("npm");
+    expect(registryPackage.registryBaseUrl).toBe("https://registry.npmjs.org");
+    expect(registryPackage.identifier).toBe(manifest.name);
+    expect(registryPackage.transport).toEqual({ type: "stdio" });
+  });
+
+  it("names the current version twice, which release-please keeps current", () => {
+    expect(registryManifest.version).toBe(manifest.version);
+    expect(registryPackage.version).toBe(manifest.version);
+    const extraFiles = releaseConfig.packages["."]["extra-files"];
+    expect(extraFiles).toContainEqual({ type: "json", path: "server.json", jsonpath: "$.version" });
+    expect(extraFiles).toContainEqual({ type: "json", path: "server.json", jsonpath: "$.packages[0].version" });
+  });
+
+  it("describes the server as the package does, within the Registry's length limit", () => {
+    expect(registryManifest.description).toBe(manifest.description);
+    expect(registryManifest.description.length).toBeLessThanOrEqual(REGISTRY_DESCRIPTION_MAX);
+  });
+
+  it("declares the two environment variables of the tool contract, the key as a required secret", () => {
+    const variables = registryPackage.environmentVariables;
+    expect(variables.map((variable: { name: string }) => variable.name)).toEqual(["AETHER_MCP_API_KEY", "AETHER_MCP_API_URL"]);
+    expect(variables[0]).toMatchObject({ isRequired: true, isSecret: true });
+    expect(variables[1]).not.toHaveProperty("isRequired");
+    expect(variables[1].default).toBe(DEFAULT_API_URL);
+  });
+
+  it("names this repository, as package.json does", () => {
+    const repositoryUrl = manifest.repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
+    expect(registryManifest.repository).toEqual({ url: repositoryUrl, source: "github" });
+  });
+});
+
 describe("the packed tarball", () => {
   let workDir: string;
   let unpacked: string;
@@ -125,6 +171,12 @@ describe("the packed tarball", () => {
 
   afterAll(() => {
     rmSync(workDir, { recursive: true, force: true });
+  });
+
+  it("keeps mcpName in the packed package.json, which is what the Registry reads from npm", () => {
+    const packed = JSON.parse(readFileSync(join(unpacked, "package.json"), "utf8"));
+    expect(packed.mcpName).toBe(registryManifest.name);
+    expect(packed.version).toBe(registryManifest.version);
   });
 
   it(
