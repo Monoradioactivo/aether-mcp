@@ -1,6 +1,6 @@
 {
   "name": "@aetherpush/mcp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Model Context Protocol server for Aether: over-the-air updates for React Native apps.",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\"",
