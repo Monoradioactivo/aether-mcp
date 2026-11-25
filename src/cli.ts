@@ -1,4 +1,6 @@
 #!/usr/bin/env node
-import { writeNotice } from "./notice";
+import { main } from "./server";
 
-process.exitCode = writeNotice(process.stderr);
+const packageJson: { version: string } = require("../package.json");
+
+main({ argv: process.argv.slice(2), version: packageJson.version });
