@@ -6,10 +6,8 @@ The repository was set up from `aether-cli`, and its release and provenance work
 
 ## Setup still open
 
-This file describes the configuration the repository is meant to have. Three parts of it are not in place yet, and each line below is deleted when its part is live:
+This file describes the configuration the repository is meant to have. One part of it is not in place yet, and the line below is deleted when that part is live:
 
-- `Commit provenance` is not a required check yet, and the `provenance` environment has no private key.
-- Renovate is not installed on the repository, and `RELEASE_AUTO_MERGE_ARM` is unset. Both wait for `Commit provenance` to be required.
 - `@aetherpush/mcp` has no bootstrap version on npm and no trusted publisher.
 
 ## Repository configuration
