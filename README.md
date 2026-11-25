@@ -13,7 +13,7 @@ Add the server to your client's user-level configuration, never to a project fil
 <!-- x-release-please-start-version -->
 
 ```sh
-claude mcp add --scope user aether -e AETHER_MCP_API_KEY=aether_sk_live_… -- npx -y @aetherpush/mcp@0.1.0
+claude mcp add --scope user aether -e AETHER_MCP_API_KEY=aether_sk_live_… -- npx -y @aetherpush/mcp@0.2.0
 ```
 
 That command leaves the key in your shell history. Other clients take the same command in their `mcpServers` configuration file, which keeps it out of the history:
@@ -24,7 +24,7 @@ That command leaves the key in your shell history. Other clients take the same c
     "aether": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@aetherpush/mcp@0.1.0"],
+      "args": ["-y", "@aetherpush/mcp@0.2.0"],
       "env": { "AETHER_MCP_API_KEY": "aether_sk_live_…" }
     }
   }
