@@ -97,6 +97,16 @@ Releases come from release-please. Nobody pushes version tags by hand.
 
 The gate cannot vouch for a first release, because there is no previous tag to measure from. The `0.1.0` release pull request is held by design and a maintainer merges it.
 
+`0.1.0` is a placeholder that prints a notice and exits; `0.2.0` is the first release that carries the server. Every release after it is checked by the gate like any other, and `__tests__/package.test.ts` fails a release pull request that would cut anything between them.
+
+The tag and the GitHub release exist before the build and publish jobs run. When either job fails, publish that same version: `gh run rerun <run id> --failed -R Monoradioactivo/aether-mcp`. A full re-run finds no new release, skips both jobs and ends green with nothing published, and skipping to the next version hides the failed version's changelog from the Renovate pull request that bumps the Aether CLI. A release is done when `npx -y @aetherpush/mcp@<version>` from an empty folder answers `server/discover` with that version.
+
+The setup commands in `README.md` pin an exact version between `x-release-please-start-version` and `x-release-please-end` markers, and `release-please-config.json` lists `README.md` as a generic extra file, so the release pull request moves those pins to the new version. `__tests__/package.test.ts` fails when a pin differs from `package.json`. Keep other version-shaped strings, such as the Claude Code version the README names, outside the markers.
+
+The Aether CLI depends on this package at an exact version and runs its binary in-process for `aether mcp`, requiring the `bin` path from `package.json`. That is why the package stays CommonJS, has no `main`, `exports`, dependencies or install scripts, and why a test runs the packed tarball both directly and through a `require` with `process.argv` rewritten. Renovate bumps the CLI's pin as its own pull request; a major version is never bumped there automatically.
+
+The server sends its own version in the `User-Agent` (`aether-mcp/<version>`) and in `X-Aether-CLI-Version`. aether-server must not gate on that header: it carries this package's version, not the CLI's.
+
 How the gate's runs are kept apart is documented once, in `aether-cli`'s `docs/MAINTENANCE.md`, for every repository that carries the workflow.
 
 ## Dependency updates
@@ -113,6 +123,6 @@ Renovate (`renovate.json`) is the only dependency updater. Dependabot is not con
 `.github/workflows/ci.yml` runs on pull requests to `main` and on pushes to `main`.
 
 - `Branch name policy` (pull requests only) enforces the prefixes above.
-- `Node 22` and `Node 24` run `npm ci`, lint, typecheck, build, the workflow and release gate script tests, and `npm test`.
+- `Node 22` and `Node 24` run `npm ci`, lint, typecheck, build, the workflow and release gate script tests, the eval harness tests, and `npm test`.
 
 The job names are a contract: the ruleset requires them by name, and `scripts/release-auto-merge-gate.mjs` reads `Node 22` as the required test check.
