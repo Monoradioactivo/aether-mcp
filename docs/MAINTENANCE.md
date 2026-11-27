@@ -50,12 +50,12 @@ Branches start with `feat/`, `fix/`, `refactor/`, `chore/`, `docs/` or `test/`. 
 
 | Name | Kind | Where | Purpose |
 |---|---|---|---|
-| `RELEASE_BOT_APP_ID` | secret | repository | App ID of the release bot, used to mint its token in the release workflows |
-| `RELEASE_BOT_PRIVATE_KEY` | secret | repository | Private key of the release bot App |
+| `RELEASE_BOT_PRIVATE_KEY` | secret | repository | Private key of the release bot App, used to mint its token in the release workflows |
 | `DISCORD_OPS_WEBHOOK_URL` | secret | repository | Where the behind bot reports a pull request it cannot update, and where `release-alert` reports a failed release |
 | `RELEASE_AUTO_MERGE_ARM` | variable | repository | `true` lets `auto-merge-release.yml` arm auto-merge on a release pull request that passes the gate |
-| `PROVENANCE_APP_ID` | variable | environment `provenance` | App ID of `aether-provenance` |
 | `PROVENANCE_APP_PRIVATE_KEY` | secret | environment `provenance` | Private key of `aether-provenance`, which posts the `Commit provenance` check |
+
+The workflows name each App by its Client ID, which is public and needs no secret: the release bot is `Iv23lio9T0bHLSDEujzR` and `aether-provenance` is `Iv23lilHrzzJAz4VtEYA`.
 
 Both environments, `provenance` and `npm-publish`, deploy from `main` only. `npm-publish` holds no secret: publishing uses OIDC trusted publishing.
 
