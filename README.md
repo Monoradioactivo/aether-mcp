@@ -2,7 +2,7 @@
 
 A read-only [Model Context Protocol](https://modelcontextprotocol.io) server for [Aether](https://aetherpush.com), over-the-air updates for React Native apps. It runs on stdin and stdout, so an AI agent can look up your apps and releases. None of its tools changes anything.
 
-The server is in beta. It speaks protocol revision 2026-07-28 only and has been checked with Claude Code 2.1.331. Clients that still open with `initialize` are refused with the revision the server supports.
+The server is in beta. It speaks protocol revision 2026-07-28, and revision 2025-11-25 for clients that open with the `initialize` handshake, such as Claude Desktop and Cursor. Within one server process, once a client has sent a 2026-07-28 request, the server refuses `initialize` with the revision it supports, so a client that probes for 2026-07-28 and then falls back to `initialize` in that process stays on 2026-07-28.
 
 ## Setup
 
@@ -41,7 +41,7 @@ The Aether CLI runs the same server as `aether mcp`, at the version of this pack
 
 This package follows semantic versioning, and it is on 0.x while the server is in beta.
 
-- Only a new major version removes, renames or changes an existing tool name, input, output field, one of the two environment variables below, or the protocol revision. For an output field, a change includes a new type, becoming nullable, and a new value in a field whose `outputSchema` lists its values (`outcome`, and `kind` in a metric).
+- Only a new major version removes, renames or changes an existing tool name, input, output field, one of the two environment variables below, or one of the two protocol revisions. For an output field, a change includes a new type, becoming nullable, and a new value in a field whose `outputSchema` lists its values (`outcome`, and `kind` in a metric).
 - New tools, new optional inputs and new output fields can arrive in a 0.y minor release.
 - `releaseMethod` and a halt's `kind` pass on text the Aether server decides. When the server adds a value, every version of this package passes it on.
 - `refusal.code` and `warnings` in `preview_rollback` come from this package's copy of the server's rollback rules. They can gain values in any release, so an older version does not know a refusal the server added after it.
@@ -105,9 +105,10 @@ Report a vulnerability as [SECURITY.md](SECURITY.md) describes.
 ## Troubleshooting
 
 - **The key is refused.** The tool call returns an error result, not a broken connection: "The Aether API at api.aetherpush.com rejected the API key: it is unknown, expired or revoked." Create a new `read` key, and check that `AETHER_MCP_API_URL` names the server that issued it. After a refusal the server waits a minute before it tries the key again.
-- **A configuration error.** A missing or malformed key, a bad URL or a Node.js older than 22 does not stop the server: it answers discovery, logs the reason on stderr and returns it as the error of every tool call.
+- **A configuration error.** A missing or malformed key, a bad URL or a Node.js older than 22 does not stop the server: it answers discovery and `initialize`, logs the reason on stderr and returns it as the error of every tool call.
 - **The client reports a broken stream or a server that exits at once.** Something other than this server wrote to stdout. The usual cause is an unpinned or ranged `npx` that ran an older installed copy, or a bare `aether` command from a CLI older than 0.13.0, which prints its help. Pin an exact version and check what runs with `npx -y @aetherpush/mcp@<version> --help`.
 - **A rate-limit message.** The server's own budget or the tenant's was reached; the message says when to retry.
+- **The client says the server implements MCP 2026-07-28 only.** The client opened with `initialize` and reached a version of this package from before it answered that handshake, or `aether mcp` from a CLI that pins one. The [changelog](CHANGELOG.md) names the first version that answers it; pin that version or a newer one.
 
 ## Development
 

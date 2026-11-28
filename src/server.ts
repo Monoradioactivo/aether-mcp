@@ -6,6 +6,7 @@ import { publicTool, ToolInputError, TOOLS, validateArguments } from "./tools";
 import { untrustedText } from "./text";
 
 export const PROTOCOL_VERSION = "2026-07-28";
+export const LEGACY_PROTOCOL_VERSION = "2025-11-25";
 
 const JSONRPC = "2.0";
 const PARSE_ERROR = -32700;
@@ -22,7 +23,7 @@ const INSTRUCTIONS =
 export const USAGE = [
   "Usage: aether mcp",
   "",
-  "Beta. Runs a read-only Model Context Protocol server (revision 2026-07-28) on stdin and stdout for MCP clients such as Claude Code.",
+  "Beta. Runs a read-only Model Context Protocol server (revision 2026-07-28, and 2025-11-25 for clients that open with initialize) on stdin and stdout for MCP clients such as Claude Code, Claude Desktop and Cursor.",
   "",
   "Environment:",
   "  AETHER_MCP_API_KEY  An Aether API key (aether_sk_live_…). Give it only the read scope.",
@@ -32,6 +33,7 @@ export const USAGE = [
 ].join("\n");
 
 type RequestId = string | number;
+type Era = "modern" | "legacy";
 
 export interface ServerOptions {
   env: NodeJS.ProcessEnv;
@@ -75,10 +77,12 @@ export function createServer(options: ServerOptions): McpServer {
   const inFlight = new Map<RequestId, AbortController>();
   const serverInfo = { name: "aether", title: "Aether", version };
   const resultMeta = { "io.modelcontextprotocol/serverInfo": serverInfo };
+  let modernRequestSeen = false;
+  let legacyInitialized = false;
 
   const send = (message: JsonObject): void => write(`${JSON.stringify(message)}\n`);
-  const reply = (id: RequestId, result: JsonObject): void =>
-    send({ jsonrpc: JSONRPC, id, result: { ...result, resultType: "complete", _meta: resultMeta } });
+  const reply = (era: Era, id: RequestId, result: JsonObject): void =>
+    send({ jsonrpc: JSONRPC, id, result: era === "modern" ? { ...result, resultType: "complete", _meta: resultMeta } : result });
   const fail = (id: unknown, code: number, message: string, data?: JsonObject): void =>
     send({
       jsonrpc: JSONRPC,
@@ -107,13 +111,13 @@ export function createServer(options: ServerOptions): McpServer {
     return true;
   }
 
-  async function callTool(id: RequestId, params: JsonObject): Promise<void> {
+  async function callTool(era: Era, id: RequestId, params: JsonObject): Promise<void> {
     const tool = TOOLS.find((candidate) => candidate.name === params.name);
     if (!tool) {
       fail(id, INVALID_PARAMS, "Unknown tool.", { name: typeof params.name === "string" ? untrustedText(params.name, 64) : null });
       return;
     }
-    const toolError = (text: string): void => reply(id, { content: [{ type: "text", text }], isError: true });
+    const toolError = (text: string): void => reply(era, id, { content: [{ type: "text", text }], isError: true });
     if (configError || !openInvocation) {
       toolError(configError ? configError.message : "aether mcp is not configured.");
       return;
@@ -128,7 +132,7 @@ export function createServer(options: ServerOptions): McpServer {
     try {
       const structured = await tool.run(openInvocation(controller.signal), (params.arguments as JsonObject | undefined) ?? {});
       if (controller.signal.aborted) return;
-      reply(id, { content: [{ type: "text", text: JSON.stringify(structured) }], structuredContent: structured, isError: false });
+      reply(era, id, { content: [{ type: "text", text: JSON.stringify(structured) }], structuredContent: structured, isError: false });
     } catch (error) {
       if (controller.signal.aborted) return;
       if (error instanceof ApiError) {
@@ -164,23 +168,67 @@ export function createServer(options: ServerOptions): McpServer {
       return;
     }
     if (method === "initialize") {
-      fail(
-        id,
-        UNSUPPORTED_PROTOCOL_VERSION,
-        `This server implements MCP ${PROTOCOL_VERSION} only, which has no initialize handshake.`,
-        {
-          supported: [PROTOCOL_VERSION],
-          requested: isObject(params) && typeof params.protocolVersion === "string" ? untrustedText(params.protocolVersion, 40) : null,
-        }
-      );
+      if (modernRequestSeen) {
+        fail(
+          id,
+          UNSUPPORTED_PROTOCOL_VERSION,
+          `This server implements MCP ${PROTOCOL_VERSION} only, which has no initialize handshake.`,
+          {
+            supported: [PROTOCOL_VERSION],
+            requested:
+              isObject(params) && typeof params.protocolVersion === "string" ? untrustedText(params.protocolVersion, 40) : null,
+          }
+        );
+        return;
+      }
+      initialize(id, params);
       return;
     }
-    if (!checkRequestMeta(id, params)) {
+    if (carriesModernVersion(params)) {
+      modernRequestSeen = true;
+      if (!checkRequestMeta(id, params)) {
+        return;
+      }
+      await handleModernRequest(id, method, params as JsonObject);
       return;
     }
-    const requestParams = params as JsonObject;
+    if (legacyInitialized) {
+      await handleLegacyRequest(id, method, params);
+      return;
+    }
+    checkRequestMeta(id, params);
+  }
+
+  function carriesModernVersion(params: unknown): boolean {
+    return isObject(params) && isObject(params._meta) && "io.modelcontextprotocol/protocolVersion" in params._meta;
+  }
+
+  function initialize(id: RequestId, params: unknown): void {
+    if (!isObject(params) || typeof params.protocolVersion !== "string") {
+      fail(id, INVALID_PARAMS, "initialize params must carry protocolVersion.");
+      return;
+    }
+    legacyInitialized = true;
+    reply("legacy", id, {
+      protocolVersion: LEGACY_PROTOCOL_VERSION,
+      capabilities: { tools: {} },
+      serverInfo,
+      instructions: INSTRUCTIONS,
+    });
+  }
+
+  function listTools(era: Era, id: RequestId, params: JsonObject): void {
+    if (params.cursor !== undefined) {
+      fail(id, INVALID_PARAMS, "Invalid cursor.");
+      return;
+    }
+    const tools = TOOLS.map(publicTool);
+    reply(era, id, era === "modern" ? { tools, ttlMs: LIST_TTL_MS, cacheScope: "public" } : { tools });
+  }
+
+  async function handleModernRequest(id: RequestId, method: string, params: JsonObject): Promise<void> {
     if (method === "server/discover") {
-      reply(id, {
+      reply("modern", id, {
         supportedVersions: [PROTOCOL_VERSION],
         capabilities: { tools: {} },
         instructions: INSTRUCTIONS,
@@ -190,15 +238,32 @@ export function createServer(options: ServerOptions): McpServer {
       return;
     }
     if (method === "tools/list") {
-      if (requestParams.cursor !== undefined) {
-        fail(id, INVALID_PARAMS, "Invalid cursor.");
-        return;
-      }
-      reply(id, { tools: TOOLS.map(publicTool), ttlMs: LIST_TTL_MS, cacheScope: "public" });
+      listTools("modern", id, params);
       return;
     }
     if (method === "tools/call") {
-      await callTool(id, requestParams);
+      await callTool("modern", id, params);
+      return;
+    }
+    fail(id, METHOD_NOT_FOUND, "Method not found.");
+  }
+
+  async function handleLegacyRequest(id: RequestId, method: string, params: unknown): Promise<void> {
+    if (params !== undefined && !isObject(params)) {
+      fail(id, INVALID_PARAMS, "Invalid params.");
+      return;
+    }
+    const requestParams = params ?? {};
+    if (method === "ping") {
+      reply("legacy", id, {});
+      return;
+    }
+    if (method === "tools/list") {
+      listTools("legacy", id, requestParams);
+      return;
+    }
+    if (method === "tools/call") {
+      await callTool("legacy", id, requestParams);
       return;
     }
     fail(id, METHOD_NOT_FOUND, "Method not found.");
