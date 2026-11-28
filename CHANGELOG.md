@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/Monoradioactivo/aether-mcp/compare/v0.2.1...v0.3.0) (2026-11-28)
+
+
+### Features
+
+* **server:** answer the initialize handshake of 2025-11-25 clients ([#16](https://github.com/Monoradioactivo/aether-mcp/issues/16)) ([b0a065f](https://github.com/Monoradioactivo/aether-mcp/commit/b0a065fd96aabd7618d87afb49569f9004e3e046))
+
 ## [0.2.1](https://github.com/Monoradioactivo/aether-mcp/compare/v0.2.0...v0.2.1) (2026-11-25)
 
 
