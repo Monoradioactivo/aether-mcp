@@ -178,19 +178,19 @@ Kinds: **tool**, **prompt**, **resource**, **out** (not exposed). Owner is the r
 
 #### Docs
 
-| Job | Name and kind | Notes |
-|---|---|---|
-| Read the documentation | out, deferred | `aether-docs` publishes HTML only, and copying its 57 pages into the package would drift. Revisit when the site serves plain-text pages. |
+| Job | Name and kind | Owner | Credential and scope | App role | Destructive | Confirmation | Local | Prerequisites | Invariants |
+|---|---|---|---|---|---|---|---|---|---|
+| Read the documentation | out, deferred: `aether-docs` publishes HTML only, and copying its 57 pages into the package would drift. Revisit when the site serves plain-text pages | aether-docs, when revisited | none (public pages) | none | no | none | none | the site serves plain-text pages | none |
 
 #### Dashboard
 
-| Job | Name and kind | Owner | Notes |
-|---|---|---|---|
-| Jobs the API serves to an API key | the API rows above | n/a | an agent reaches them through the tools |
-| Create an API key with approval required | dashboard form (new card) | aether-dashboard | without it no user can hold the key the write tools need |
-| Approve a pending release write | dashboard page (https://trello.com/c/d9oXBf0u) | aether-dashboard | the person in the loop for every write tool |
-| Consent to an MCP client; list and revoke connected clients | dashboard pages (new card, split from https://trello.com/c/ugCttkJw) | aether-dashboard | remote phase |
-| Billing, keys, sessions, MFA, CLI approvals, transfer accept, account deletion, staff | out | n/a | session-only; Invariants 4, 6, 7 |
+| Job | Name and kind | Owner | Credential and scope | App role | Destructive | Confirmation | Local | Prerequisites | Invariants |
+|---|---|---|---|---|---|---|---|---|---|
+| Jobs the API serves to an API key | the API rows above; an agent reaches them through the tools | aether-mcp | as in those rows | as in those rows | as in those rows | as in those rows | none | none | as in those rows |
+| Create an API key with approval required | out as a tool; a dashboard form (https://trello.com/c/ibUmLBCI) | aether-dashboard | dashboard session | none (account-level) | no | the form itself, under the Invariant 6 guards | none | the `approval_required` field live in production | 6 |
+| Approve or reject a pending release write | out as a tool; a dashboard page (https://trello.com/c/d9oXBf0u) | aether-dashboard | dashboard session of the key's issuer | the role that grants the operation | yes, it authorizes the write | it is the confirmation | none | https://trello.com/c/NUaKnP0f | 1, 3, 6 |
+| Consent to an MCP client; list and revoke connected clients | out as a tool; dashboard pages (https://trello.com/c/wYMXH5RJ) | aether-dashboard | dashboard session of an MFA-compliant account | none (account-level) | consent issues a grant; revoke ends one | the consent page itself | none | https://trello.com/c/P1WoTLso | 2, 6, 7 |
+| Billing, keys, sessions, MFA, CLI approvals, transfer accept, account deletion, staff | out: session-only or dashboard-session-only | aether-dashboard | login or dashboard session | none, or staff role | yes for most | the dashboard's own flows | none | none | 4, 6, 7 |
 
 ### The remote endpoint's tools
 
@@ -235,6 +235,8 @@ What the runs show beyond the score:
 - "Set up a GitHub Actions workflow…" ended with the model drafting a workflow from memory and saying it could not confirm how the CLI signs in from CI; in two runs it tried a shell tool the session did not have. That is the gap `set_up_ci` and the template resources fill. Prompts and resources are chosen by the user or the client, not by the model, so this eval cannot score them.
 - `get_access` was picked for "Can the Aether key you are using publish or roll back releases?" in every run, and models called it on their own in 7 of the 12 write runs, once before deciding not to write and six times after the write tool had answered, in those runs with a refusal. Every `get_access` call used the read key while the stub's write tools used a separate deploy key, so the path where a write tool refuses a key without `approval_required` never ran.
 - In 8 of 12 `plan_release` calls the model sent no rollout. The proposed schema makes it required, so the card that builds the tool checks what the model sends when it must choose one.
+
+A second run on the same day added the two surfaces the first one left without a prompt, under its own rule fixed before it ran (6 of 6, no write call): "What does the Aether documentation say about setting up code signing for updates?" for docs, and "Which Aether plan am I on, and how many monthly active devices have I used?" for a session-only dashboard job. **Result: 6 of 6, no tool call in any run, 0 invalid.** Every answer said the tools cannot read the documentation, or the plan and usage, and named what the tools do cover. This run stored full answers. Its raw results file shows `"passed": false` because the harness applies the first run's 71-correct threshold to every run; this run's own rule is the 6 of 6 above.
 
 Three runs of one model are still a small sample. The cards that build these tools re-run the eval with their shipped descriptions.
 
