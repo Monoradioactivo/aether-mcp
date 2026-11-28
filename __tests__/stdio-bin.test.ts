@@ -100,6 +100,55 @@ describe("the built aether-mcp bin", () => {
     expect(result.stderr.includes(KEY)).toBe(false);
   });
 
+  test("a client that opens with initialize gets the 2025-11-25 session, with every line written at once", async () => {
+    const result = await run([], { AETHER_MCP_API_KEY: KEY, AETHER_MCP_API_URL: url }, [
+      {
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "c", version: "1" } },
+      },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_apps", arguments: {}, _meta: { progressToken: 1 } } },
+      { jsonrpc: "2.0", id: 3, method: "ping" },
+    ]);
+    expect(result.code).toBe(0);
+    const byId = new Map(jsonRpcLines(result.stdout).map((m) => [m.id, m]));
+    expect([...byId.keys()].sort()).toEqual([0, 1, 2, 3]);
+    expect(byId.get(0).result.protocolVersion).toBe("2025-11-25");
+    expect(byId.get(0).result.serverInfo.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(Object.keys(byId.get(1).result)).toEqual(["tools"]);
+    expect(byId.get(1).result.tools).toHaveLength(5);
+    expect(byId.get(2).result.structuredContent.apps).toEqual([{ name: "Shop", deployments: ["Production"] }]);
+    expect("resultType" in byId.get(2).result).toBe(false);
+    expect(byId.get(3).result).toEqual({});
+  });
+
+  test("a 2026-07-28 probe followed by initialize keeps the refusal a 2026-07-28 client recovers from", async () => {
+    const result = await run([], { AETHER_MCP_API_KEY: KEY, AETHER_MCP_API_URL: url }, [
+      { jsonrpc: "2.0", id: "server-discover-probe-1", method: "server/discover", params: { _meta: META } },
+      {
+        jsonrpc: "2.0",
+        id: 0,
+        method: "initialize",
+        params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "c", version: "1" } },
+      },
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: META } },
+    ]);
+    expect(result.code).toBe(0);
+    const byId = new Map(jsonRpcLines(result.stdout).map((m) => [m.id, m]));
+    expect(byId.get("server-discover-probe-1").result.resultType).toBe("complete");
+    expect(byId.get(0).error).toEqual({
+      code: -32022,
+      message: "This server implements MCP 2026-07-28 only, which has no initialize handshake.",
+      data: { supported: ["2026-07-28"], requested: "2025-11-25" },
+    });
+    expect(byId.get(1).error.code).toBe(-32602);
+    expect(byId.get(2).result.resultType).toBe("complete");
+  });
+
   test("a configuration error keeps stdout clean and fails each call as a tool error", async () => {
     const result = await run([], { AETHER_MCP_API_KEY: "opaque-access-key" }, [
       { jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: META } },

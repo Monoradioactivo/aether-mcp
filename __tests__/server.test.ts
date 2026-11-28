@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, USAGE } from "../src/server";
+import { LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION, USAGE } from "../src/server";
 import { TOOLS } from "../src/tools";
 import { ENV, harness, historyRoute, jsonResponse, KEY, META, pkg, STUB_URL } from "./helpers";
 
@@ -15,15 +15,38 @@ describe("aether mcp protocol", () => {
     expect(response.result._meta["io.modelcontextprotocol/serverInfo"]).toEqual({ name: "aether", title: "Aether", version: "9.9.9" });
   });
 
-  test("initialize is refused with the supported versions", async () => {
-    const [response] = await harness().send({
+  test("initialize after a 2026-07-28 request is refused with the supported versions", async () => {
+    const h = harness();
+    await h.send({ jsonrpc: "2.0", id: "server-discover-probe-1", method: "server/discover", params: { _meta: META } });
+    const [response] = await h.send({
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
       params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "x", version: "1" } },
     });
+    expect(response).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      error: {
+        code: -32022,
+        message: "This server implements MCP 2026-07-28 only, which has no initialize handshake.",
+        data: { supported: [PROTOCOL_VERSION], requested: "2025-11-25" },
+      },
+    });
+    expect((await h.send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }))[0].error.code).toBe(-32602);
+  });
+
+  test("a 2026-07-28 request whose version is refused still keeps initialize refused", async () => {
+    const h = harness();
+    const [unsupported] = await h.send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { _meta: { ...META, "io.modelcontextprotocol/protocolVersion": "1900-01-01" } },
+    });
+    expect(unsupported.error.code).toBe(-32022);
+    const [response] = await h.send({ jsonrpc: "2.0", id: 2, method: "initialize", params: { protocolVersion: "2025-11-25" } });
     expect(response.error.code).toBe(-32022);
-    expect(response.error.data).toEqual({ supported: [PROTOCOL_VERSION], requested: "2025-11-25" });
   });
 
   test("per-request _meta is enforced", async () => {
@@ -101,6 +124,138 @@ describe("aether mcp protocol", () => {
     expect(USAGE).toMatch(/Beta\./);
     expect(USAGE).toMatch(/AETHER_MCP_API_KEY/);
     expect(USAGE).toMatch(/AETHER_MCP_API_URL/);
+  });
+});
+
+describe("aether mcp 2025-11-25 handshake", () => {
+  const INITIALIZE = {
+    jsonrpc: "2.0",
+    id: 0,
+    method: "initialize",
+    params: { protocolVersion: LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "claude-ai", version: "0.1.0" } },
+  };
+  const APPS_ROUTE = { "/v1/apps": { apps: [{ name: "Shop", collaborators: {}, deployments: ["Production"] }] } };
+
+  test("initialize as the first request answers revision 2025-11-25 with capabilities and server info", async () => {
+    const [response] = await harness().send(INITIALIZE);
+    expect(response).toEqual({
+      jsonrpc: "2.0",
+      id: 0,
+      result: {
+        protocolVersion: LEGACY_PROTOCOL_VERSION,
+        capabilities: { tools: {} },
+        serverInfo: { name: "aether", title: "Aether", version: "9.9.9" },
+        instructions: expect.stringMatching(/^Beta\./),
+      },
+    });
+  });
+
+  test("any other requested revision negotiates down to 2025-11-25", async () => {
+    for (const requested of ["2025-06-18", "2024-11-05", "2026-07-28", "x".repeat(200)]) {
+      const [response] = await harness().send({ ...INITIALIZE, params: { ...INITIALIZE.params, protocolVersion: requested } });
+      expect(response.result.protocolVersion).toBe(LEGACY_PROTOCOL_VERSION);
+    }
+  });
+
+  test("initialize without a string protocolVersion is invalid and initializes nothing", async () => {
+    for (const params of [undefined, [], {}, { protocolVersion: 20251125 }]) {
+      const h = harness();
+      const [response] = await h.send({ jsonrpc: "2.0", id: 0, method: "initialize", ...(params === undefined ? {} : { params }) });
+      expect(response.error).toEqual({ code: -32602, message: "initialize params must carry protocolVersion." });
+      expect((await h.send({ jsonrpc: "2.0", id: 1, method: "tools/list" }))[0].error.code).toBe(-32602);
+    }
+  });
+
+  test("after initialize, tools/list, tools/call and ping answer without the 2026-07-28 fields", async () => {
+    const h = harness({ routes: APPS_ROUTE });
+    await h.send(INITIALIZE);
+    expect(await h.send({ jsonrpc: "2.0", method: "notifications/initialized" })).toEqual([]);
+    const [list] = await h.send({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    expect(Object.keys(list.result)).toEqual(["tools"]);
+    expect(list.result.tools).toEqual(TOOLS.map(({ run: _run, ...definition }) => definition));
+    const [call] = await h.send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "list_apps", arguments: {}, _meta: { progressToken: 7 } },
+    });
+    expect(Object.keys(call.result).sort()).toEqual(["content", "isError", "structuredContent"]);
+    expect(call.result.isError).toBe(false);
+    expect(call.result.structuredContent.apps).toEqual([{ name: "Shop", deployments: ["Production"] }]);
+    expect(JSON.parse(call.result.content[0].text)).toEqual(call.result.structuredContent);
+    expect(await h.send({ jsonrpc: "2.0", id: 3, method: "ping" })).toEqual([{ jsonrpc: "2.0", id: 3, result: {} }]);
+  });
+
+  test("legacy tool errors keep the shared shapes without the 2026-07-28 fields", async () => {
+    const h = harness();
+    await h.send(INITIALIZE);
+    const [unknown] = await h.send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "delete_everything" } });
+    expect(unknown.error).toEqual({ code: -32602, message: "Unknown tool.", data: { name: "delete_everything" } });
+    const [invalid] = await h.send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_apps", arguments: "nope" } });
+    expect(invalid.result).toEqual({
+      content: [{ type: "text", text: "Invalid arguments: arguments must be an object." }],
+      isError: true,
+    });
+    expect((await h.send({ jsonrpc: "2.0", id: 3, method: "tools/list", params: { cursor: "x" } }))[0].error.code).toBe(-32602);
+    expect((await h.send({ jsonrpc: "2.0", id: 4, method: "tools/list", params: [] }))[0].error.code).toBe(-32602);
+    expect((await h.send({ jsonrpc: "2.0", id: 5, method: "server/discover" }))[0].error.code).toBe(-32601);
+    expect((await h.send({ jsonrpc: "2.0", id: 6, method: "resources/list" }))[0].error.code).toBe(-32601);
+  });
+
+  test("a legacy configuration error is a tool error without the 2026-07-28 fields", async () => {
+    const h = harness({ env: { AETHER_MCP_API_URL: STUB_URL } });
+    await h.send(INITIALIZE);
+    const [call] = await h.send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_apps", arguments: {} } });
+    expect(Object.keys(call.result).sort()).toEqual(["content", "isError"]);
+    expect(call.result.content[0].text).toMatch(/AETHER_MCP_API_KEY is not set/);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("a 2026-07-28 request after initialize keeps the 2026-07-28 shape, and a later initialize is refused", async () => {
+    const h = harness({ routes: APPS_ROUTE });
+    await h.send(INITIALIZE);
+    const [discover] = await h.send({ jsonrpc: "2.0", id: 1, method: "server/discover", params: { _meta: META } });
+    expect(discover.result.resultType).toBe("complete");
+    expect(discover.result.supportedVersions).toEqual([PROTOCOL_VERSION]);
+    const [list] = await h.send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: { _meta: META } });
+    expect(Object.keys(list.result).sort()).toEqual(["_meta", "cacheScope", "resultType", "tools", "ttlMs"]);
+    const call = await h.call("list_apps", {}, 3);
+    expect(call.result.resultType).toBe("complete");
+    expect((await h.send({ jsonrpc: "2.0", id: 4, method: "ping", params: { _meta: META } }))[0].error.code).toBe(-32601);
+    const [again] = await h.send({ ...INITIALIZE, id: 5 });
+    expect(again.error.code).toBe(-32022);
+  });
+
+  test("after initialize and a 2026-07-28 request, each request keeps its own era, a call in flight included", async () => {
+    let releaseApps: () => void = () => {};
+    const appsHeld = new Promise<void>((resolve) => (releaseApps = resolve));
+    const h = harness({
+      routes: {
+        "/v1/apps": async () => {
+          await appsHeld;
+          return jsonResponse(200, { apps: [{ name: "Shop", collaborators: {}, deployments: ["Production"] }] });
+        },
+      },
+    });
+    await h.send(INITIALIZE);
+    const legacyCall = h.send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_apps", arguments: {} } });
+    const [discover] = await h.send({ jsonrpc: "2.0", id: 2, method: "server/discover", params: { _meta: META } });
+    expect(discover.result.resultType).toBe("complete");
+    releaseApps();
+    const [legacy] = await legacyCall;
+    expect(legacy.id).toBe(1);
+    expect(Object.keys(legacy.result).sort()).toEqual(["content", "isError", "structuredContent"]);
+    const [list] = await h.send({ jsonrpc: "2.0", id: 3, method: "tools/list" });
+    expect(Object.keys(list.result)).toEqual(["tools"]);
+    const modern = await h.call("list_apps", {}, 4);
+    expect(modern.result.resultType).toBe("complete");
+  });
+
+  test("a second initialize before any 2026-07-28 request is answered again", async () => {
+    const h = harness();
+    const [first] = await h.send(INITIALIZE);
+    const [second] = await h.send({ ...INITIALIZE, id: 1 });
+    expect(second.result).toEqual(first.result);
   });
 });
 
